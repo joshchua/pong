@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -7,14 +8,21 @@
 
 #define LOG_CAT_GENERAL 0
 
+#define WINDOW_TITLE "Pong"
 #define WINDOW_WIDTH 500
 #define WINDOW_HEIGHT 300
 
 #define BALL_LENGTH 10
+#define BALL_SPEED 3
+#define BALL_ANGLES { 0, 30, 45, 60, 300, 315, 330, \
+                      120, 135, 150, 180, 210, 225, 240 }
+#define BALL_ANGLES_SIZE 14
+
 #define PADDLE_WIDTH 10
 #define PADDLE_HEIGHT 40
 #define PADDLE_DY 5
-#define PADDLE_HORIZONTAL_OFFSET 20
+#define PADDLE_HORIZONTAL_OFFSET 0
+#define PADDLE_VERTICAL_OFFSET 20
 
 /**
  * The root game structure.
@@ -25,15 +33,15 @@ struct game
     SDL_Renderer *renderer;
     bool is_running;
 
-    SDL_Rect ball;
-    int ball_dy;
-    int ball_dx;
+    SDL_FRect ball;
+    float ball_dy;
+    float ball_dx;
     
-    SDL_Rect paddle1;
-    int paddle1_dy;
+    SDL_FRect paddle1;
+    float paddle1_dy;
     
-    SDL_Rect paddle2;
-    int paddle2_dy;
+    SDL_FRect paddle2;
+    float paddle2_dy;
 };
 
 /**
@@ -43,7 +51,7 @@ struct game
  */
 SDL_Window *create_window()
 {
-    const char *title = "Pong";
+    const char *title = WINDOW_TITLE;
     int x = SDL_WINDOWPOS_CENTERED;
     int y = SDL_WINDOWPOS_CENTERED;
     int w = WINDOW_WIDTH;
@@ -64,6 +72,23 @@ SDL_Renderer *create_renderer(SDL_Window *window)
     int index = -1;
     uint32_t flags = 0;
     return SDL_CreateRenderer(window, index, flags);
+}
+
+
+void reset_ball(struct game *g)
+{
+    int window_width;
+    int window_height;
+    SDL_GL_GetDrawableSize(g->window, &window_width,
+                           &window_height);
+    
+    g->ball.x = (window_width / 2) - (g->ball.w / 2);
+    g->ball.y = (window_height / 2) - (g->ball.h / 2);
+
+    static float angles[BALL_ANGLES_SIZE] = BALL_ANGLES;
+    int i = rand() % (BALL_ANGLES_SIZE - 1);
+    g->ball_dx = cosf(angles[i]);
+    g->ball_dy = sinf(angles[i]);
 }
 
 /**
@@ -97,11 +122,8 @@ struct game *init_game()
     
     game->ball.h = BALL_LENGTH;
     game->ball.w = BALL_LENGTH;
-    game->ball.x = 100;
-    game->ball.y = 100;
 
-    game->ball_dx = -1;
-    game->ball_dy = -1;
+    reset_ball(game);
 
     int window_width;
     int window_height;
@@ -131,12 +153,12 @@ struct game *init_game()
  *
  * @param [in] game The game structure.
  */
-void free_game(struct game *game)
+void free_game(struct game *g)
 {
-    SDL_DestroyRenderer(game->renderer);
-    SDL_DestroyWindow(game->window);
+    SDL_DestroyRenderer(g->renderer);
+    SDL_DestroyWindow(g->window);
     SDL_Quit();
-    free(game);
+    free(g);
 }
 
 /**
@@ -144,25 +166,25 @@ void free_game(struct game *game)
  *
  * @param [in] game The game structure.
  */
-void handle_input(struct game *game)
+void handle_input(struct game *g)
 {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) {
-            game->is_running = false;
+            g->is_running = false;
         } else if (e.type == SDL_KEYDOWN) {
             switch (e.key.keysym.sym) {
             case SDLK_w:
-                game->paddle1_dy = -PADDLE_DY;
+                g->paddle1_dy = -PADDLE_DY;
                 break;
             case SDLK_s:
-                game->paddle1_dy = +PADDLE_DY;
+                g->paddle1_dy = +PADDLE_DY;
                 break;
             case SDLK_UP:
-                game->paddle2_dy = -PADDLE_DY;
+                g->paddle2_dy = -PADDLE_DY;
                 break;
             case SDLK_DOWN:
-                game->paddle2_dy = +PADDLE_DY;
+                g->paddle2_dy = +PADDLE_DY;
                 break;
             default:
                 break;
@@ -170,16 +192,16 @@ void handle_input(struct game *game)
         } else if (e.type == SDL_KEYUP) {
             switch (e.key.keysym.sym) {
             case SDLK_w:
-                game->paddle1_dy = 0;
+                g->paddle1_dy = 0;
                 break;
             case SDLK_s:
-                game->paddle1_dy = 0;
+                g->paddle1_dy = 0;
                 break;
             case SDLK_UP:
-                game->paddle2_dy = 0;
+                g->paddle2_dy = 0;
                 break;
             case SDLK_DOWN:
-                game->paddle2_dy = 0;
+                g->paddle2_dy = 0;
                 break;
             default:
                 break;
@@ -193,10 +215,10 @@ void handle_input(struct game *game)
  *
  * @param [in] game The game structure.
  */
-void prepare_scene(struct game *game)
+void prepare_scene(struct game *g)
 {
-    SDL_SetRenderDrawColor(game->renderer, 0, 0, 0, 255);
-    SDL_RenderClear(game->renderer);
+    SDL_SetRenderDrawColor(g->renderer, 0, 0, 0, 255);
+    SDL_RenderClear(g->renderer);
 }
 
 /**
@@ -204,71 +226,57 @@ void prepare_scene(struct game *game)
  *
  * @param [in] game The game structure.
  */
-void present_scene(struct game *game)
+void present_scene(struct game *g)
 {
-    SDL_RenderPresent(game->renderer);
+    SDL_RenderPresent(g->renderer);
 }
 
-void move_ball(struct game *game)
+
+void move_ball(struct game *g)
 {
-    game->ball.x += game->ball_dx;
-    game->ball.y += game->ball_dy;
+    g->ball.x += g->ball_dx * BALL_SPEED;
+    g->ball.y += g->ball_dy * BALL_SPEED;
 
     int window_width;
     int window_height;
-    SDL_GL_GetDrawableSize(game->window, &window_width,
+    SDL_GL_GetDrawableSize(g->window, &window_width,
                            &window_height);
 
-    if (game->ball.x < 0 ||
-        game->ball.x + game->ball.w > window_width) {
-        game->ball.x = (window_width / 2) - (game->ball.w / 2);
-        game->ball.y = (window_height / 2) - (game->ball.h / 2);
+    if (g->ball.x < 0 ||
+        g->ball.x + g->ball.w > window_width) {
+        reset_ball(g);
     }
 
-    if (game->ball.y < 0) {
-        game->ball_dy = +1;
-    } else if (game->ball.y + game->ball.h > window_height) {
-        game->ball_dy = -1;
+    if (g->ball.y < 0 || g->ball.y + g->ball.h > window_height) {
+        g->ball_dy *= -1;
     }
 }
 
-void move_paddle(struct game *game, SDL_Rect *paddle, int *dy)
+void move_paddle(struct game *g, SDL_FRect *paddle, float *dy)
 {
     int window_height;
-    SDL_GL_GetDrawableSize(game->window, NULL, &window_height);
+    SDL_GL_GetDrawableSize(g->window, NULL, &window_height);
 
     paddle->y += *dy;
 
-    if (paddle->y < 0) {
-        paddle->y = 0;
-    } else if (paddle->y + paddle->h > window_height) {
-        paddle->y = window_height - paddle->h;
+    if (paddle->y < PADDLE_VERTICAL_OFFSET) {
+        paddle->y = PADDLE_VERTICAL_OFFSET;
+    } else if (paddle->y + paddle->h >
+               window_height - PADDLE_VERTICAL_OFFSET) {
+        paddle->y = window_height - paddle->h - PADDLE_VERTICAL_OFFSET;
     }
 }
 
-void handle_paddle_ball_collision(struct game *game, SDL_Rect *p,
-                                  int *p_dy)
-{
-    SDL_Rect *b = &game->ball;
-    if (p->x < b->x + b->w &&
-        p->x + p->w > b->x &&
-        p->y < b->y + b->h &&
-        p->y + p->h > b->y) {
-        game->ball_dx *= -1;
-        int dy = 0;
-        if (*p_dy < 0) {
-            dy = -1;
-        } else if (*p_dy > 0) {
-            dy = 1;
-        }
-        game->ball_dy = dy;
-    }
-}
-
-void draw_white_rect(SDL_Renderer *renderer, SDL_Rect *rect)
+void draw_white_rect(SDL_Renderer *renderer, SDL_FRect *rect)
 {
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_RenderFillRect(renderer, rect);
+    SDL_RenderFillRectF(renderer, rect);
+}
+
+void draw_ball(struct game *g)
+{
+    SDL_SetRenderDrawColor(g->renderer, 255, 255, 255, 255);
+    SDL_RenderFillRectF(g->renderer, &g->ball);
 }
 
 /**
@@ -276,23 +284,19 @@ void draw_white_rect(SDL_Renderer *renderer, SDL_Rect *rect)
  *
  * @param [in] game The game structure.
  */
-void game_loop(struct game *game)
+void game_loop(struct game *g)
 {
-    game->is_running = true;
-    while (game->is_running) {
-        prepare_scene(game);
-        handle_input(game);
-        move_ball(game);
-        move_paddle(game, &game->paddle1, &game->paddle1_dy);
-        move_paddle(game, &game->paddle2, &game->paddle2_dy);
-        handle_paddle_ball_collision(game, &game->paddle1,
-                                     &game->paddle1_dy);
-        handle_paddle_ball_collision(game, &game->paddle2,
-                                     &game->paddle2_dy);
-        draw_white_rect(game->renderer, &game->ball);
-        draw_white_rect(game->renderer, &game->paddle1);
-        draw_white_rect(game->renderer, &game->paddle2);
-        present_scene(game);
+    g->is_running = true;
+    while (g->is_running) {
+        prepare_scene(g);
+        handle_input(g);
+        move_paddle(g, &g->paddle1, &g->paddle1_dy);
+        move_paddle(g, &g->paddle2, &g->paddle2_dy);
+        move_ball(g);        
+        draw_ball(g);
+        draw_white_rect(g->renderer, &g->paddle1);
+        draw_white_rect(g->renderer, &g->paddle2);
+        present_scene(g);
         SDL_Delay(16);
     }
 }
