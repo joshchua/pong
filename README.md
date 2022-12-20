@@ -9,7 +9,7 @@ Like the original game...
 TODO: Add scoring and a reset button.
 
 ## Requirements
-SDL2 needs to be linked to build the game. A simple way to install SDL2 on a Mac is via Homebrew
+SDL2 needs to be linked to build the game. A simple way to install SDL2 on a Mac is install via Homebrew.
 ```shell
 brew install sdl2
 ```
